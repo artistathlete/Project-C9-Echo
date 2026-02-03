@@ -2,15 +2,15 @@ import os
 import asyncio
 import json
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
 
 # --- 1. DATA MODELS ---
-# These models normalize GRID data so the AI can process LoL and VALORANT consistently.
 class GameEvent(BaseModel):
+    """Normalized event structure for both LoL and VALORANT"""
     game: str  # 'lol' or 'valorant'
     event_type: str
     timestamp: float
@@ -22,6 +22,7 @@ class GameEvent(BaseModel):
 
 
 class MatchSnapshot(BaseModel):
+    """A collection of events representing a 'high-leverage' moment"""
     moment_id: str
     events: List[GameEvent]
     game_state: Dict[str, Any]
@@ -31,7 +32,7 @@ class MatchSnapshot(BaseModel):
 # --- 2. API SETUP ---
 app = FastAPI(title="Project C9 Echo API")
 
-# Enable CORS for frontend or local testing
+# Enable CORS for local testing and frontend integration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,23 +40,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API Key and URL Configuration
-# Note: apiKey is set to an empty string as required by the environment.
-apiKey = ""
+# --- 3. CONFIGURATION (GRID & GEMINI) ---
+# Replace these with your actual keys or set them as environment variables
+GRID_API_KEY = os.environ.get("GRID_API_KEY", "YOUR_GRID_API_KEY_HERE")
+apiKey = os.environ.get("GEMINI_API_KEY", "")  # Environment provides key at runtime
+
+# Endpoints
+GRID_QUERY_URL = "https://api.grid.gg/query"
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={apiKey}"
 
 
-# --- 3. AI REASONING ENGINE (Exponential Backoff) ---
+# --- 4. GRID DATA FETCHING (AUTHENTICATION) ---
+async def fetch_real_grid_data(series_id: str):
+    """
+    Fetches real-time series events using the 'x-api-key' header
+    as specified in the GRID.gg documentation.
+    """
+    if not GRID_API_KEY or "YOUR_GRID" in GRID_API_KEY:
+        return {"error": "GRID_API_KEY not configured."}
+
+    # GraphQL query to extract kills and timestamps for coaching analysis
+    query = """
+    query GetMatchDetails($id: ID!) {
+      series(id: $id) {
+        id
+        games {
+          id
+          events {
+            type
+            timestamp
+            ... on KillEvent {
+              killer { name }
+              victim { name }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    headers = {
+        "x-api-key": GRID_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                GRID_QUERY_URL,
+                json={"query": query, "variables": {"id": series_id}},
+                headers=headers,
+                timeout=15.0
+            )
+            return response.json()
+        except Exception as e:
+            return {"error": f"Failed to connect to GRID: {str(e)}"}
+
+
+# --- 5. AI REASONING ENGINE (Exponential Backoff) ---
 async def call_gemini_with_backoff(prompt: str):
     """
-    Calls the Gemini API to generate coaching insights.
-    Implements mandatory exponential backoff: retries up to 5 times.
+    Calls Gemini API with mandatory exponential backoff: retries up to 5 times.
     """
     system_prompt = (
-        "You are Head Coach Inero from Cloud9. You are a legendary coach in VALORANT and League of Legends. "
-        "Your goal is to provide 'Moneyball' style tactical analysis. "
-        "Do not just list stats. Explain WHY a play failed or succeeded based on tactical positioning and utility usage. "
-        "Be concise, professional, and slightly blunt. Use terms like 'defaulting', 'spacing', 'utility usage', and 'rotations'."
+        "You are Head Coach Inero from Cloud9. You provide blunt, tactical coaching. "
+        "Focus on 'Moneyball' metrics: utility usage, spacing, and map pressure. "
+        "Identify exactly one tactical error in the data provided."
     )
 
     payload = {
@@ -63,63 +113,61 @@ async def call_gemini_with_backoff(prompt: str):
         "systemInstruction": {"parts": [{"text": system_prompt}]}
     }
 
-    # Delays for backoff: 1s, 2s, 4s, 8s, 16s
     delays = [1, 2, 4, 8, 16]
-
     async with httpx.AsyncClient() as client:
         for delay in delays:
             try:
                 response = await client.post(GEMINI_URL, json=payload, timeout=30.0)
                 if response.status_code == 200:
                     result = response.json()
-                    # Parse the content from the Gemini response structure
                     return result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text',
-                                                                                                          "Insight unavailable.")
+                                                                                                          "No insight.")
             except Exception:
-                # Silently fail and wait for next retry
                 pass
             await asyncio.sleep(delay)
 
-    return "The coach is currently reviewing the VOD. Please try again later. (API Timeout)"
+    return "Coach Inero is reviewing the VOD. (API Timeout)"
 
 
-# --- 4. ENDPOINTS ---
+# --- 6. ENDPOINTS ---
 @app.get("/")
 async def root():
-    return {"status": "online", "coach": "Inero"}
+    return {
+        "status": "online",
+        "coach": "Inero",
+        "grid_connected": bool(GRID_API_KEY and "YOUR" not in GRID_API_KEY)
+    }
 
 
 @app.post("/analyze")
 async def analyze_match(snapshot: MatchSnapshot):
     """
-    Primary endpoint for 'Echo'. Receives match data and returns coaching insights.
+    Manual analysis endpoint: Receives normalized data and returns insight.
     """
-    if not snapshot.events:
-        raise HTTPException(status_code=400, detail="No events provided in the snapshot.")
+    events_log = "\n".join([f"- {e.description}" for e in snapshot.events])
+    user_query = f"Analyze this match moment:\n{events_log}\nGame State: {json.dumps(snapshot.game_state)}"
 
-    # Format the events into a log for the AI
-    events_log = "\n".join([f"- {e.timestamp}s: {e.description} (Type: {e.event_type})" for e in snapshot.events])
-
-    user_query = f"""
-    Analyze this high-leverage moment in a {snapshot.events[0].game} match:
-    Moment ID: {snapshot.moment_id}
-    Current Game State: {json.dumps(snapshot.game_state)}
-
-    Events Log:
-    {events_log}
-
-    As Coach Inero, identify the most critical mistake or winning play in this sequence. 
-    Explain what should have been done differently.
-    """
-
-    # Generate the insight using the reasoning engine
     insight = await call_gemini_with_backoff(user_query)
     snapshot.coach_insight = insight
     return snapshot
 
 
+@app.get("/analyze-series/{series_id}")
+async def analyze_real_match(series_id: str):
+    """
+    Automated Analysis: Pulls data from GRID and passes to Gemini.
+    """
+    grid_data = await fetch_real_grid_data(series_id)
+    insight = await call_gemini_with_backoff(f"Analyze this raw GRID series data: {json.dumps(grid_data)}")
+
+    return {
+        "series_id": series_id,
+        "coach_insight": insight,
+        "data_source": "GRID Data Platform"
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    # Start the server on port 8000
     uvicorn.run(app, host="0.0.0.0", port=8000)

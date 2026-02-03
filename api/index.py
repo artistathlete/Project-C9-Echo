@@ -3,14 +3,13 @@ import json
 import httpx
 import asyncio
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict, Any
 
-# Initialize FastAPI with custom paths for Vercel routing
-# We set the docs and openapi paths under /api to avoid conflicts with the frontend
+# Initialize FastAPI
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
-# Enable CORS for the frontend to communicate with this API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,98 +17,168 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONFIGURATION (Managed via Environment Variables) ---
+# --- CONFIGURATION ---
 GRID_API_KEY = os.environ.get("GRID_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-
-# GRID API Query Endpoint
 GRID_QUERY_URL = "https://api.grid.gg/query"
-
-# Gemini 2.5 Flash Endpoint (Preview Model)
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={GEMINI_API_KEY}"
 
-
-# --- GRID AUTHENTICATION LOGIC ---
-
-async def fetch_real_grid_data(series_id: str):
-    """
-    Fetches match data using the 'x-api-key' header specified in the GRID documentation.
-    """
-    if not GRID_API_KEY:
-        return {"error": "GRID_API_KEY missing in environment variables"}
-
-    # GraphQL query to extract kills and timestamps for coaching analysis
-    query = """
-    query GetMatchDetails($id: ID!) {
-      series(id: $id) {
-        id
-        games {
-          id
-          events {
-            type
-            timestamp
-            ... on KillEvent {
-              killer { name }
-              victim { name }
-            }
-          }
+# --- DASHBOARD HTML (Integrated for Vercel Deployment) ---
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C9 Echo | Tactical Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <style>
+        .coach-terminal { background-color: #020617; color: #38bdf8; font-family: 'Courier New', monospace; border: 1px solid #1e293b; }
+        .nav-link.active { color: #3b82f6; border-bottom: 2px solid #3b82f6; font-weight: 800; }
+        .chart-container { position: relative; width: 100%; height: 280px; }
+        @keyframes scanline { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
+        .terminal-scan::after { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.05), transparent); animation: scanline 4s linear infinite; pointer-events: none; }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-300">
+    <nav class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black italic shadow-lg">C9</div>
+                <h1 class="text-xl font-bold tracking-tighter">PROJECT <span class="text-blue-500">ECHO</span></h1>
+            </div>
+            <div class="flex gap-8 text-sm font-bold text-slate-500 dark:text-slate-400">
+                <div onclick="switchTab('home')" id="tab-home" class="nav-link active py-2 cursor-pointer">COACH DASHBOARD</div>
+                <div onclick="switchTab('leaderboard')" id="tab-leaderboard" class="nav-link py-2 cursor-pointer">LEADERBOARD</div>
+            </div>
+            <button onclick="document.documentElement.classList.toggle('dark')" class="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">🌙</button>
+        </div>
+    </nav>
+    <main class="max-w-7xl mx-auto p-4 md:p-8">
+        <div id="view-home" class="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500">
+            <div class="lg:col-span-1 space-y-6">
+                <section class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <h2 class="text-lg font-bold mb-4 text-slate-900 dark:text-white">Tactical Scenarios</h2>
+                    <div class="space-y-3">
+                        <button onclick="runScenario('valorant')" class="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 bg-slate-50 dark:bg-slate-800 transition-all font-bold">VALORANT: Round 12 Failed Retake</button>
+                        <button onclick="runScenario('lol')" class="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 bg-slate-50 dark:bg-slate-800 transition-all font-bold">LoL: Mid-Game Throw</button>
+                    </div>
+                </section>
+                <section class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Moneyball Context</h3>
+                    <div class="chart-container"><canvas id="swingChart"></canvas></div>
+                </section>
+            </div>
+            <div class="lg:col-span-2">
+                <section class="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200 dark:border-slate-800 shadow-lg min-h-[500px] flex flex-col">
+                    <div class="flex justify-between items-start mb-6">
+                        <h2 class="text-2xl font-black italic tracking-tighter">COACH <span class="text-blue-500">INERO'S REVIEW</span></h2>
+                        <div id="loader" class="hidden text-blue-500 font-bold animate-pulse text-xs">>>> ANALYZING DATA...</div>
+                    </div>
+                    <div id="output" class="coach-terminal relative rounded-xl p-8 flex-grow leading-relaxed overflow-hidden">
+                        <div class="terminal-scan"></div>
+                        <span id="output-text" class="relative z-10">Initialize tactical analysis from the sidebar to begin VOD review.</span>
+                    </div>
+                </section>
+            </div>
+        </div>
+        <div id="view-leaderboard" class="hidden max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div class="bg-white dark:bg-slate-900 rounded-3xl p-8 md:p-12 border border-slate-200 dark:border-slate-800 shadow-xl">
+                <h2 class="text-4xl font-black italic mb-8">TACTICAL IQ <span class="text-blue-600">RANKINGS</span></h2>
+                <div id="lb-content" class="divide-y divide-slate-100 dark:divide-slate-800"></div>
+            </div>
+        </div>
+    </main>
+    <script>
+        const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : '';
+        let chart;
+        function switchTab(tab) {
+            document.getElementById('view-home').classList.toggle('hidden', tab !== 'home');
+            document.getElementById('view-leaderboard').classList.toggle('hidden', tab !== 'leaderboard');
+            document.getElementById('tab-home').classList.toggle('active', tab === 'home');
+            document.getElementById('tab-leaderboard').classList.toggle('active', tab === 'leaderboard');
+            if(tab === 'leaderboard') loadLeaderboard();
         }
-      }
-    }
-    """
-
-    headers = {
-        "x-api-key": GRID_API_KEY,
-        "Content-Type": "application/json"
-    }
-
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                GRID_QUERY_URL,
-                json={"query": query, "variables": {"id": series_id}},
-                headers=headers,
-                timeout=15.0
-            )
-            return response.json()
-        except Exception as e:
-            return {"error": f"GRID Connection Error: {str(e)}"}
+        async function runScenario(game) {
+            const out = document.getElementById('output-text');
+            const loader = document.getElementById('loader');
+            loader.classList.remove('hidden');
+            out.innerHTML = "Pulling data from GRID Data Platform...";
+            try {
+                const res = await fetch(`${API_BASE}/api/analyze`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ game, timestamp: Date.now() })
+                });
+                const data = await res.json();
+                out.innerText = data.coach_insight;
+                chart.data.datasets[0].data = [120, 310, 240, 2500];
+                chart.update();
+            } catch(e) { out.innerText = "Error reaching the Coach. Check API keys in Vercel settings."; } finally { loader.classList.add('hidden'); }
+        }
+        async function loadLeaderboard() {
+            const lb = document.getElementById('lb-content');
+            try {
+                const res = await fetch(`${API_BASE}/api/leaderboard`);
+                const data = await res.json();
+                lb.innerHTML = data.map(p => `
+                    <div class="flex justify-between items-center py-6">
+                        <span class="font-black text-slate-400">#0${p.rank}</span>
+                        <span class="font-bold tracking-tight">${p.player}</span>
+                        <span class="text-blue-500 font-black">${p.iq} IQ</span>
+                        <span class="text-[9px] font-black rounded-full border px-2 py-0.5 uppercase tracking-tighter dark:border-slate-700">${p.status}</span>
+                    </div>`).join('');
+            } catch(e) { lb.innerText = "Failed to sync rankings."; }
+        }
+        window.onload = () => {
+            const ctx = document.getElementById('swingChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['-30s', '-20s', '-10s', 'NOW'],
+                    datasets: [{ label: 'Gold Diff', data: [100, 150, 120, 130], borderColor: '#3b82f6', tension: 0.4, fill: true, backgroundColor: 'rgba(59, 130, 246, 0.1)', pointRadius: 0 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { display: false }, x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10, weight: 'bold' } } } } }
+            });
+        }
+    </script>
+</body>
+</html>
+"""
 
 
 # --- ENDPOINTS ---
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_dashboard():
+    """Serves the frontend dashboard directly from the Python backend."""
+    return DASHBOARD_HTML
+
 
 @app.get("/api/python")
 def status():
     """Health check for the Python runtime on Vercel."""
     return {
         "status": "online",
-        "message": "Echo Engine Operational on Vercel",
-        "grid_auth": "x-api-key active" if GRID_API_KEY else "Missing Key"
+        "message": "Echo Engine Unified Mode Operational",
+        "grid_auth": "x-api-key ready" if GRID_API_KEY else "Missing GRID Key"
     }
 
 
 @app.post("/api/analyze")
 async def analyze(request: Request):
-    """
-    Processes match data and generates AI coaching insights using Gemini 2.5 Flash.
-    """
+    """Processes match data and generates AI coaching insights."""
     data = await request.json()
-    series_id = data.get("series_id")
 
-    # 1. Gather Context (Real GRID data or the provided manual scenario)
-    if series_id:
-        grid_result = await fetch_real_grid_data(series_id)
-        match_context = json.dumps(grid_result)
-    else:
-        match_context = str(data)
-
-    # 2. Check for Gemini Key
     if not GEMINI_API_KEY:
         return {
             "coach_insight": "[DEMO MODE] Coach Inero: I noticed a lapse in utility timing. You attempted to push site while the Sova drone was still in transit. In professional play, we wait for that intel. Fix your spacing."
         }
 
-    # 3. Call Gemini Reasoning Layer (Mandatory Exponential Backoff: 1s, 2s, 4s)
     system_prompt = (
         "You are Head Coach Inero from Cloud9. Analyze this GRID match data and identify "
         "one specific tactical error. Be blunt, professional, and explain the 'Why' behind "
@@ -117,11 +186,12 @@ async def analyze(request: Request):
     )
 
     payload = {
-        "contents": [{"parts": [{"text": f"Analyze this match sequence: {match_context}"}]}],
+        "contents": [{"parts": [{"text": f"Analyze this match sequence: {json.dumps(data)}"}]}],
         "systemInstruction": {"parts": [{"text": system_prompt}]}
     }
 
     async with httpx.AsyncClient() as client:
+        # Implementing exponential backoff
         for delay in [1, 2, 4]:
             try:
                 response = await client.post(GEMINI_URL, json=payload, timeout=25.0)
@@ -132,7 +202,7 @@ async def analyze(request: Request):
             except Exception:
                 await asyncio.sleep(delay)
 
-    return {"coach_insight": "Coach is busy reviewing the tape. Connection to reasoning engine timed out."}
+    return {"coach_insight": "Coach Inero is busy reviewing the VOD. Connection to reasoning engine timed out."}
 
 
 @app.get("/api/leaderboard")

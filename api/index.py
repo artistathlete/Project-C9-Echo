@@ -6,10 +6,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Dict, Any
 
-# Initialize FastAPI with custom paths for Vercel
+# Initialize FastAPI with custom paths for Vercel routing
+# We set the docs and openapi paths under /api to avoid conflicts with the frontend
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
-# Enable CORS for frontend integration
+# Enable CORS for the frontend to communicate with this API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,15 +18,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONFIGURATION ---
-# Keys are pulled from Vercel Environment Variables for security
+# --- CONFIGURATION (Managed via Environment Variables) ---
 GRID_API_KEY = os.environ.get("GRID_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-# GRID API Endpoint (Standard GraphQL Query)
+# GRID API Query Endpoint
 GRID_QUERY_URL = "https://api.grid.gg/query"
 
-# Gemini 2.5 Flash Endpoint
+# Gemini 2.5 Flash Endpoint (Preview Model)
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={GEMINI_API_KEY}"
 
 
@@ -33,13 +33,12 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.
 
 async def fetch_real_grid_data(series_id: str):
     """
-    Fetches real-time series events using the 'x-api-key' header
-    as specified in the GRID.gg documentation.
+    Fetches match data using the 'x-api-key' header specified in the GRID documentation.
     """
     if not GRID_API_KEY:
         return {"error": "GRID_API_KEY missing in environment variables"}
 
-    # This GraphQL query targets high-leverage kill events and timestamps
+    # GraphQL query to extract kills and timestamps for coaching analysis
     query = """
     query GetMatchDetails($id: ID!) {
       series(id: $id) {
@@ -74,29 +73,30 @@ async def fetch_real_grid_data(series_id: str):
             )
             return response.json()
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"GRID Connection Error: {str(e)}"}
 
 
 # --- ENDPOINTS ---
 
 @app.get("/api/python")
-def hello_world():
+def status():
+    """Health check for the Python runtime on Vercel."""
     return {
         "status": "online",
-        "message": "Echo Engine Operational",
-        "grid_auth": "x-api-key ready" if GRID_API_KEY else "Missing GRID Key"
+        "message": "Echo Engine Operational on Vercel",
+        "grid_auth": "x-api-key active" if GRID_API_KEY else "Missing Key"
     }
 
 
 @app.post("/api/analyze")
 async def analyze(request: Request):
     """
-    Unified endpoint: Fetches from GRID (if ID provided) or analyzes the snapshot.
+    Processes match data and generates AI coaching insights using Gemini 2.5 Flash.
     """
     data = await request.json()
     series_id = data.get("series_id")
 
-    # 1. Gather Context (Real data from GRID or the provided manual snapshot)
+    # 1. Gather Context (Real GRID data or the provided manual scenario)
     if series_id:
         grid_result = await fetch_real_grid_data(series_id)
         match_context = json.dumps(grid_result)
@@ -106,10 +106,10 @@ async def analyze(request: Request):
     # 2. Check for Gemini Key
     if not GEMINI_API_KEY:
         return {
-            "coach_insight": "[DEMO MODE] Coach Inero: I'm seeing a lack of tactical discipline. You committed to that site entry without clearing the corners or waiting for utility backup. It's a fundamental error that costs us rounds. Fix it."
+            "coach_insight": "[DEMO MODE] Coach Inero: I noticed a lapse in utility timing. You attempted to push site while the Sova drone was still in transit. In professional play, we wait for that intel. Fix your spacing."
         }
 
-    # 3. Call Gemini Reasoning Layer (Exponential Backoff included)
+    # 3. Call Gemini Reasoning Layer (Mandatory Exponential Backoff: 1s, 2s, 4s)
     system_prompt = (
         "You are Head Coach Inero from Cloud9. Analyze this GRID match data and identify "
         "one specific tactical error. Be blunt, professional, and explain the 'Why' behind "
@@ -122,7 +122,7 @@ async def analyze(request: Request):
     }
 
     async with httpx.AsyncClient() as client:
-        for delay in [1, 2, 4]:  # Retry delays
+        for delay in [1, 2, 4]:
             try:
                 response = await client.post(GEMINI_URL, json=payload, timeout=25.0)
                 if response.status_code == 200:
@@ -137,9 +137,7 @@ async def analyze(request: Request):
 
 @app.get("/api/leaderboard")
 async def get_leaderboard():
-    """
-    Returns the Tactical IQ rankings.
-    """
+    """Returns the tactical IQ rankings."""
     return [
         {"rank": 1, "player": "C9_Berserker", "iq": 98, "status": "ELITE"},
         {"rank": 2, "player": "C9_Blaber", "iq": 94, "status": "PRO"},

@@ -3,42 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>C9 Echo | Ultimate Tactical Suite</title>
+    <title>C9 Echo | Tactical Coaching Suite</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        // Configure Tailwind to support class-based dark mode
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        c9blue: '#0097D9',
-                        c9navy: '#002855',
-                    }
-                }
-            }
-        }
+        tailwind.config = { darkMode: 'class' }
     </script>
     <style>
-        .glass-panel {
-            transition: all 0.3s ease;
-        }
-        .dark .glass-panel {
-            background: rgba(30, 41, 59, 0.8);
-            border-color: rgba(71, 85, 105, 0.5);
-        }
+        /* Custom UI Enhancements */
         .coach-terminal {
             background-color: #020617;
             color: #38bdf8;
-            font-family: 'Courier New', Courier, monospace;
+            font-family: 'Courier New', monospace;
             box-shadow: inset 0 4px 15px rgba(0,0,0,0.8);
             border: 1px solid #1e293b;
-        }
-        .nav-link {
-            transition: all 0.2s ease;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
         }
         .nav-link.active {
             color: #3b82f6;
@@ -50,188 +28,169 @@
             width: 100%;
             height: 280px;
         }
-        @keyframes scanline {
-            0% { transform: translateY(-100%); }
-            100% { transform: translateY(100%); }
-        }
         .terminal-scan::after {
             content: "";
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
             background: linear-gradient(to bottom, transparent, rgba(56, 189, 248, 0.05), transparent);
-            animation: scanline 4s linear infinite;
             pointer-events: none;
         }
     </style>
-    <!-- Chosen Palette: Cloud9 Pro-Series. Light Mode: Clean White/Slate. Dark Mode: Deep Navy/Slate-900. -->
-    <!-- Application Structure Plan:
-         1. Global Navigation: Tab switching (Coach vs Leaderboard) + Theme Toggle.
-         2. Tab A (Coach): Scenario Selector, Chart.js Visualization, AI Terminal Output.
-         3. Tab B (Leaderboard): Player Ranking Table with Dark Mode specific row styling.
-         4. Integrated API Handling: Direct connection to local FastAPI with demo fallbacks.
-    -->
-    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-300">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 min-h-screen">
 
-    <!-- Header / Navigation -->
-    <nav class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 sticky top-0 z-50 shadow-sm">
+    <!-- Navbar -->
+    <nav class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black italic shadow-lg shadow-blue-500/20">C9</div>
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black italic shadow-lg">C9</div>
                 <div>
                     <h1 class="text-xl font-bold tracking-tighter">PROJECT <span class="text-blue-500">ECHO</span></h1>
-                    <div id="api-status" class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    <div id="api-status" class="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">
                         <div class="w-1.5 h-1.5 bg-slate-300 rounded-full"></div> Offline
                     </div>
                 </div>
             </div>
 
             <div class="flex gap-8 text-sm font-bold text-slate-500 dark:text-slate-400">
-                <div onclick="switchTab('home')" id="tab-home" class="nav-link active py-2">COACH DASHBOARD</div>
-                <div onclick="switchTab('leaderboard')" id="tab-leaderboard" class="nav-link py-2">TACTICAL LEADERBOARD</div>
+                <div onclick="switchTab('home')" id="tab-home" class="nav-link active py-2 cursor-pointer transition-all">COACH DASHBOARD</div>
+                <div onclick="switchTab('leaderboard')" id="tab-leaderboard" class="nav-link py-2 cursor-pointer transition-all">LEADERBOARD</div>
             </div>
 
-            <button onclick="toggleTheme()" class="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                <span id="theme-icon" class="text-lg">🌙</span>
+            <button onclick="document.documentElement.classList.toggle('dark')" class="p-2 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                <span class="text-lg">🌙</span>
             </button>
         </div>
     </nav>
 
-    <!-- Content Area -->
+    <!-- Main Content -->
     <main class="max-w-7xl mx-auto p-4 md:p-8">
 
-        <!-- View 1: Coach Dashboard -->
+        <!-- Dashboard View -->
         <div id="view-home" class="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in fade-in duration-500">
-
-            <!-- Side Panel: Controls -->
             <div class="lg:col-span-1 space-y-6">
-                <section class="glass-panel bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h2 class="text-lg font-bold mb-4">Select Coaching VOD</h2>
-                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-6">Accessing GRID Data Stream... Select a high-leverage moment to analyze.</p>
-
+                <section class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <h2 class="text-lg font-bold mb-4">Tactical Scenarios</h2>
                     <div class="space-y-3">
-                        <button onclick="runScenario('valorant')" class="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 bg-white dark:bg-slate-800 transition-all group shadow-sm">
+                        <button onclick="runScenario('valorant')" class="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 bg-slate-50 dark:bg-slate-800 transition-all font-bold group">
                             <div class="flex justify-between items-center mb-1">
-                                <span class="font-bold group-hover:text-blue-500">VALORANT</span>
-                                <span class="text-[9px] font-black bg-blue-100 dark:bg-blue-900/30 text-blue-600 px-2 py-0.5 rounded">R12 RETAKE</span>
+                                <span class="group-hover:text-blue-500">VALORANT</span>
+                                <span class="text-[9px] bg-blue-100 dark:bg-blue-900/30 text-blue-600 px-2 py-0.5 rounded">RETAKE</span>
                             </div>
-                            <div class="text-[11px] text-slate-500 italic">"Site lost during man-advantage"</div>
+                            <div class="text-[11px] text-slate-500 font-normal italic">Round 12 Site Loss</div>
                         </button>
-
-                        <button onclick="runScenario('lol')" class="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 dark:hover:border-blue-500 bg-white dark:bg-slate-800 transition-all group shadow-sm">
+                        <button onclick="runScenario('lol')" class="w-full text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 bg-slate-50 dark:bg-slate-800 transition-all font-bold group">
                             <div class="flex justify-between items-center mb-1">
-                                <span class="font-bold group-hover:text-blue-500">LEAGUE OF LEGENDS</span>
-                                <span class="text-[9px] font-black bg-purple-100 dark:bg-purple-900/30 text-purple-600 px-2 py-0.5 rounded">22:10 BARON</span>
+                                <span class="group-hover:text-blue-500">LEAGUE OF LEGENDS</span>
+                                <span class="text-[9px] bg-purple-100 dark:bg-purple-900/30 text-purple-600 px-2 py-0.5 rounded">OBJECTIVE</span>
                             </div>
-                            <div class="text-[11px] text-slate-500 italic">"Objective throw after pick-off"</div>
+                            <div class="text-[11px] text-slate-500 font-normal italic">22:10 Baron Throw</div>
                         </button>
                     </div>
                 </section>
 
-                <section class="glass-panel bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Moneyball Context</h3>
+                <section class="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Moneyball Swing Detection</h3>
                     <div class="chart-container">
                         <canvas id="swingChart"></canvas>
                     </div>
-                    <p class="text-[10px] text-slate-400 mt-4 leading-relaxed">
-                        The blue peak indicates the <strong>1,200 Gold Swing</strong> moment currently being analyzed by the Echo Reasoning Engine.
-                    </p>
                 </section>
             </div>
 
-            <!-- Main Panel: Terminal -->
-            <div class="lg:col-span-2 space-y-6">
-                <section class="glass-panel bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200 dark:border-slate-800 shadow-lg h-full flex flex-col">
+            <div class="lg:col-span-2">
+                <section class="bg-white dark:bg-slate-900 rounded-2xl p-8 border border-slate-200 dark:border-slate-800 shadow-lg min-h-[500px] flex flex-col">
                     <div class="flex justify-between items-start mb-6">
                         <div>
-                            <h2 class="text-2xl font-black italic tracking-tighter">COACH <span class="text-blue-500">INERO</span></h2>
-                            <p class="text-xs text-slate-500 font-bold uppercase tracking-widest">Reasoning Layer: Gemini 2.5 Flash</p>
+                            <h2 class="text-2xl font-black italic tracking-tighter">COACH <span class="text-blue-500">INERO'S REVIEW</span></h2>
+                            <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Model: Gemini 2.5 Flash</p>
                         </div>
-                        <div id="loader" class="hidden">
-                            <span class="loading-pulse text-blue-500 font-black text-sm tracking-tighter">AI THINKING...</span>
-                        </div>
+                        <div id="loader" class="hidden text-blue-500 font-bold animate-pulse text-xs tracking-tighter">>>> ANALYZING DATA...</div>
                     </div>
-
-                    <div id="insight-display" class="coach-terminal relative rounded-xl p-8 flex-grow min-h-[420px] overflow-hidden">
+                    <div id="output" class="coach-terminal relative rounded-xl p-8 flex-grow leading-relaxed overflow-hidden">
                         <div class="terminal-scan"></div>
-                        <div id="text-target" class="relative z-10 leading-relaxed text-sm md:text-base">
-                            <span class="opacity-40 italic">System Ready. Please initialize a coaching scenario from the sidebar.</span>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4 mt-6">
-                        <div class="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                            <div class="text-[9px] font-black text-slate-400 uppercase mb-1">Tactical Error</div>
-                            <div id="err-tag" class="font-bold text-slate-700 dark:text-slate-300">-</div>
-                        </div>
-                        <div class="p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
-                            <div class="text-[9px] font-black text-slate-400 uppercase mb-1">Suggested Drill</div>
-                            <div id="drill-tag" class="font-bold text-slate-700 dark:text-slate-300">-</div>
-                        </div>
+                        <span id="output-text" class="relative z-10">Initialize tactical analysis from the sidebar to begin VOD review.</span>
                     </div>
                 </section>
             </div>
         </div>
 
-        <!-- View 2: Leaderboard -->
-        <div id="view-leaderboard" class="hidden max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-500">
-            <div class="glass-panel bg-white dark:bg-slate-900 rounded-3xl p-8 md:p-12 shadow-2xl border border-slate-200 dark:border-slate-800">
+        <!-- Leaderboard View -->
+        <div id="view-leaderboard" class="hidden max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div class="bg-white dark:bg-slate-900 rounded-3xl p-8 md:p-12 border border-slate-200 dark:border-slate-800 shadow-xl">
                 <div class="text-center mb-10">
-                    <h2 class="text-4xl font-black italic tracking-tighter mb-2">PRO <span class="text-blue-600">RANKINGS</span></h2>
-                    <p class="text-slate-500 dark:text-slate-400 font-medium">Ranked by Tactical Efficiency & Coachability IQ</p>
+                    <h2 class="text-4xl font-black italic tracking-tighter mb-2">TACTICAL IQ <span class="text-blue-600">RANKINGS</span></h2>
+                    <p class="text-slate-500 dark:text-slate-400 font-medium">Ranked by Strategic Discipline & Positioning IQ</p>
                 </div>
-
-                <div class="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
-                    <table class="w-full text-left border-collapse">
-                        <thead class="bg-slate-50 dark:bg-slate-800/50">
-                            <tr>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase">Rank</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase">Player Identifier</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase text-center">Tactical IQ</th>
-                                <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase text-center">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="lb-table" class="divide-y divide-slate-100 dark:divide-slate-800">
-                            <!-- Dynamic Load -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="mt-12 p-6 bg-blue-600 rounded-2xl text-white shadow-xl shadow-blue-500/20 flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div>
-                        <h4 class="text-xl font-bold">Improve Your Ranking</h4>
-                        <p class="text-sm opacity-80">Sync your VODs through the Echo Client to climb the leaderboard.</p>
-                    </div>
-                    <button class="bg-white text-blue-600 px-6 py-3 rounded-xl font-black text-sm uppercase tracking-tight hover:scale-105 transition-transform">Get Started</button>
-                </div>
+                <div id="lb-content" class="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-100 dark:border-slate-800"></div>
             </div>
         </div>
-
     </main>
 
     <script>
-        const API_URL = 'http://localhost:8000';
+        // Use relative path for Vercel, localhost for local development
+        const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:8000' : '';
         let chart;
 
-        // --- Theme Logic ---
-        function toggleTheme() {
-            const isDark = document.documentElement.classList.toggle('dark');
-            document.getElementById('theme-icon').innerText = isDark ? '☀️' : '🌙';
-            updateChartTheme(isDark);
-        }
-
-        // --- Tab Logic ---
         function switchTab(tab) {
             document.getElementById('view-home').classList.toggle('hidden', tab !== 'home');
             document.getElementById('view-leaderboard').classList.toggle('hidden', tab !== 'leaderboard');
             document.getElementById('tab-home').classList.toggle('active', tab === 'home');
             document.getElementById('tab-leaderboard').classList.toggle('active', tab === 'leaderboard');
-            if(tab === 'home' && chart) chart.update();
+            if(tab === 'leaderboard') loadLeaderboard();
         }
 
-        // --- Chart Logic ---
-        function initChart() {
+        async function runScenario(game) {
+            const outText = document.getElementById('output-text');
+            const loader = document.getElementById('loader');
+            loader.classList.remove('hidden');
+            outText.innerHTML = "Pulling match context from GRID Data Platform...";
+
+            try {
+                const res = await fetch(`${API_BASE}/api/analyze`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ game, timestamp: Date.now() })
+                });
+                const data = await res.json();
+                outText.innerText = data.coach_insight;
+
+                // Update chart to simulate impact detection
+                chart.data.datasets[0].data = [120, 310, 240, 2500];
+                chart.update();
+            } catch(e) {
+                outText.innerText = "Error reaching the Coach. Ensure the backend is running and API keys are set.";
+            } finally { loader.classList.add('hidden'); }
+        }
+
+        async function loadLeaderboard() {
+            const lb = document.getElementById('lb-content');
+            try {
+                const res = await fetch(`${API_BASE}/api/leaderboard`);
+                const data = await res.json();
+                lb.innerHTML = data.map(p => `
+                    <div class="flex justify-between items-center px-6 py-6 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <span class="font-black text-slate-400 w-12">#0${p.rank}</span>
+                        <span class="font-bold tracking-tight flex-grow">${p.player}</span>
+                        <span class="text-blue-500 font-black w-24 text-right">${p.iq} IQ</span>
+                        <span class="ml-8 text-[9px] font-black rounded-full border px-2 py-0.5 uppercase tracking-tighter dark:border-slate-700">${p.status}</span>
+                    </div>
+                `).join('');
+            } catch(e) { lb.innerText = "Failed to sync rankings."; }
+        }
+
+        async function checkStatus() {
+            const status = document.getElementById('api-status');
+            try {
+                const res = await fetch(`${API_BASE}/api/python`);
+                if(res.ok) {
+                    status.innerHTML = `<div class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> Online`;
+                    status.classList.replace('text-slate-400', 'text-green-500');
+                }
+            } catch(e) {}
+        }
+
+        window.onload = () => {
+            checkStatus();
             const ctx = document.getElementById('swingChart').getContext('2d');
             chart = new Chart(ctx, {
                 type: 'line',
@@ -239,12 +198,11 @@
                     labels: ['-30s', '-20s', '-10s', 'NOW'],
                     datasets: [{
                         label: 'Gold Diff',
-                        data: [120, 310, 240, 1800],
+                        data: [100, 150, 120, 130],
                         borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        fill: true,
                         tension: 0.4,
-                        borderWidth: 3,
+                        fill: true,
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         pointRadius: 0
                     }]
                 },
@@ -256,123 +214,12 @@
                         y: { display: false },
                         x: {
                             grid: { display: false },
-                            ticks: { font: { size: 10, weight: 'bold' }, color: '#94a3b8' }
+                            ticks: { color: '#94a3b8', font: { size: 10, weight: 'bold' } }
                         }
                     }
                 }
             });
         }
-
-        function updateChartTheme(isDark) {
-            if(!chart) return;
-            const color = isDark ? '#475569' : '#e2e8f0';
-            chart.options.scales.x.grid.color = color;
-            chart.update();
-        }
-
-        // --- API Logic ---
-        async function checkServer() {
-            const status = document.getElementById('api-status');
-            try {
-                const res = await fetch(API_URL + '/');
-                if(res.ok) {
-                    status.innerHTML = `<div class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> ONLINE (READY)`;
-                    status.classList.replace('text-slate-400', 'text-green-500');
-                }
-            } catch(e) {
-                status.innerHTML = `<div class="w-1.5 h-1.5 bg-orange-400 rounded-full"></div> DEMO MODE (SERVER OFFLINE)`;
-                status.classList.replace('text-slate-400', 'text-orange-500');
-            }
-        }
-
-        async function runScenario(game) {
-            const target = document.getElementById('text-target');
-            const loader = document.getElementById('loader');
-            const errTag = document.getElementById('err-tag');
-            const drillTag = document.getElementById('drill-tag');
-
-            target.innerHTML = `<div class="text-blue-500 font-mono animate-pulse uppercase tracking-widest text-xs">Connecting to Agentic Layer...</div>`;
-            loader.classList.remove('hidden');
-
-            const payload = {
-                moment_id: "demo-" + Date.now(),
-                events: [{
-                    game: game,
-                    event_type: "error",
-                    timestamp: 120,
-                    description: game === 'valorant'
-                        ? "Jett pushed A-Site without flash assistance while defenders were tucked in Elbow."
-                        : "Jungler attempted Baron despite the Top Laner being caught in a side lane with no TP available."
-                }],
-                game_state: { "env": "Hackathon" }
-            };
-
-            try {
-                const res = await fetch(API_URL + '/analyze', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
-                });
-                const data = await res.json();
-
-                // Update text with a typing effect simulation
-                target.innerText = data.coach_insight;
-                errTag.innerText = game === 'valorant' ? "Iso-Pushing Site" : "Macro Priority Error";
-                drillTag.innerText = game === 'valorant' ? "Flash Coordination" : "Map State Awareness";
-
-                // Animate Chart Spike
-                chart.data.datasets[0].data = [100, 400, 200, 2200];
-                chart.update();
-
-            } catch(e) {
-                setTimeout(() => {
-                    target.innerHTML = `
-                        <div class="text-orange-400 font-black text-xs mb-2 tracking-widest">[OFFLINE DEMO MODE]</div>
-                        Coach Inero: You're playing scared or you're playing solo. In this ${game.toUpperCase()} sequence, your positioning was completely isolated from your utility support.
-                        In professional play, we call this a "gifted pick." You gave them the advantage for free. Stop pushing without your team.
-                    `;
-                }, 1000);
-            } finally {
-                loader.classList.add('hidden');
-            }
-        }
-
-        async function loadLeaderboard() {
-            const table = document.getElementById('lb-table');
-            const fallback = [
-                { rank: 1, player: "C9_Berserker", iq: 98, status: "ELITE" },
-                { rank: 2, player: "C9_Blaber", iq: 94, status: "PRO" },
-                { rank: 3, player: "You (User)", iq: 85, status: "IMPROVING" },
-                { rank: 4, player: "Trial_Runner_09", iq: 52, status: "LEARNING" }
-            ];
-
-            try {
-                const res = await fetch(API_URL + '/leaderboard');
-                const data = res.ok ? await res.json() : fallback;
-                renderLB(data);
-            } catch(e) {
-                renderLB(fallback);
-            }
-        }
-
-        function renderLB(data) {
-            const table = document.getElementById('lb-table');
-            table.innerHTML = data.map(p => `
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td class="px-6 py-5 font-black ${p.rank === 1 ? 'text-amber-500' : 'text-slate-400'}">#0${p.rank}</td>
-                    <td class="px-6 py-5 font-bold tracking-tight">${p.player}</td>
-                    <td class="px-6 py-5 text-center font-black text-blue-500">${p.iq}</td>
-                    <td class="px-6 py-5 text-center">
-                        <span class="px-3 py-1 text-[9px] font-black rounded-full border border-slate-200 dark:border-slate-700 uppercase tracking-tighter">${p.status}</span>
-                    </td>
-                </tr>
-            `).join('');
-        }
-
-        // Init everything
-        window.onload = () => {
-            initChart();
-            checkServer();
-            loadLeaderboard();
-        }
     </script>
+</body>
+</html>
